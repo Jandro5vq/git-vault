@@ -14,8 +14,14 @@ echo
 
 # ---- 1. Ask for the key ----
 if [[ -n "${GIT_VAULT_KEY:-}" ]]; then
-  echo "✓ Using key from GIT_VAULT_KEY env var."
   KEY="$GIT_VAULT_KEY"
+  if [[ ! -f "${GIT_DIR}/vault-key" ]]; then
+    echo "$KEY" > "${GIT_DIR}/vault-key"
+    chmod 600 "${GIT_DIR}/vault-key"
+    echo "✓ Key from GIT_VAULT_KEY saved to ${GIT_DIR}/vault-key"
+  else
+    echo "✓ Using key from GIT_VAULT_KEY env var (vault-key file already exists)."
+  fi
 elif [[ -f "${GIT_DIR}/vault-key" ]]; then
   echo "✓ Key already present at ${GIT_DIR}/vault-key"
   KEY="$(cat "${GIT_DIR}/vault-key")"
