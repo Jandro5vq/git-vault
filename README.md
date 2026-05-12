@@ -18,12 +18,12 @@ Each encrypted file is a 4-line text file, binary-safe via base64:
 
 ```
 GITVAULT:2.1
-<iv_hex>            # 32 hex chars — random (openssl rand)
+<iv_hex>            # 32 hex chars — keyed-deterministic (PBKDF2 master key + content hash)
 <hmac_hex>          # 64 hex chars — HMAC-SHA256 over ciphertext (encrypt-then-MAC)
 <base64_ciphertext> # AES-256-CBC output
 ```
 
-Key derivation: PBKDF2-SHA256 at 600,000 iterations with a per-repo salt stored in `.git-vault/vault-salt`. The double-encrypt guard (`GITVAULT:` header check) prevents re-encrypting already-encrypted content, so git does not see dirty files on re-add.
+Key derivation: PBKDF2-SHA256 at 600,000 iterations with a per-repo salt stored in `.git-vault/vault-salt`. The IV is derived from the PBKDF2 master key and the content hash — same content always produces the same ciphertext (git does not mark files dirty), while cross-repo correlation is eliminated because each repo has a unique salt.
 
 Legacy `GITVAULT:2` files (SHA-256 derivation, deterministic IV) continue to decrypt correctly. Run `vault.sh upgrade` to migrate them.
 

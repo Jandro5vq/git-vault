@@ -108,7 +108,10 @@ do_encrypt() {
   if [[ -f "$salt_file" ]]; then
     header="GITVAULT:2.1"
     master_key="$(derive_master_key "$passphrase" "$salt_file")"
-    iv="$(openssl rand -hex 16)"
+    local content_hash
+    content_hash="$(openssl dgst -sha256 -hex "$tmp_plain" 2>/dev/null | awk '{print $NF}')"
+    iv="$(printf 'git-vault:v2.1:iv:%s:%s' "$master_key" "$content_hash" \
+          | openssl dgst -sha256 -hex 2>/dev/null | awk '{print $NF}' | cut -c1-32)"
   else
     # Legacy path: no salt → v2 format with SHA-256 and deterministic IV
     header="GITVAULT:2"

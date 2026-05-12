@@ -38,9 +38,10 @@ The correct pattern for CBC: the ciphertext is authenticated **before** decrypti
 Guards against padding oracle attacks and tampering detection.
 The HMAC key is derived independently: `SHA-256("git-vault:v2:hmac-key:" + master_key)`.
 
-**Random IV (GITVAULT:2.1)**
-`IV = openssl rand -hex 16` — 128 bits of CSPRNG output per encryption.
-Eliminates the deterministic IV correlation attack present in GITVAULT:2. Re-encrypting the same file produces different ciphertext each time (except when the double-encrypt guard fires, which returns the existing ciphertext unchanged).
+**Keyed-deterministic IV (GITVAULT:2.1)**
+`IV = SHA-256("git-vault:v2.1:iv:" + master_key + ":" + SHA-256(plaintext))[:16]`
+The IV is derived from the PBKDF2 master key and the content hash.
+Same content + same key → same IV → same ciphertext (git-safe: no spurious dirty files after stat cache invalidation). Different repos have different PBKDF2 salts → different master keys → different IVs for identical content (no cross-repo correlation). The only remaining correlation is within the same repo: two files with identical plaintext produce identical ciphertext — acceptable for this use case.
 
 **Binary-safe**
 stdin is written to a temp file before processing; never passed through bash variables (which truncate null bytes). Round-trip verified with all values 0x00–0xFF.
@@ -64,7 +65,7 @@ With HMAC-SHA256 correctly implemented, the difference is academic.
 
 **The IV is stored in plaintext**
 
-The IV is stored in the encrypted file header (required for decryption). In GITVAULT:2, the IV was deterministic, so an attacker could detect whether two commits encrypted the same content. In GITVAULT:2.1, the IV is random — this leaks only that a file was *re-encrypted* (not whether the content changed), which is acceptable.
+The IV is stored in the encrypted file header (required for decryption). In GITVAULT:2.1, the IV is derived from the PBKDF2 master key and content hash — an attacker without the key cannot determine whether two files share the same plaintext by comparing IVs (the IV depends on a secret). Within the same repo and key, identical plaintext produces identical ciphertext; this is acceptable since the attacker would need the key to exploit it anyway.
 
 **Shared salt for PBKDF2**
 
