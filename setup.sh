@@ -44,7 +44,19 @@ fi
 
 echo
 
-# ---- 2. Configure git filters ----
+# ---- 2. Generate PBKDF2 salt ----
+VAULT_SALT_FILE="${REPO_ROOT}/.git-vault/vault-salt"
+if [[ ! -f "$VAULT_SALT_FILE" ]]; then
+  openssl rand -hex 32 > "$VAULT_SALT_FILE"
+  echo "✓ PBKDF2 salt generated at .git-vault/vault-salt"
+  echo "  Commit this file — it is not secret, just prevents rainbow tables."
+else
+  echo "✓ PBKDF2 salt already present at .git-vault/vault-salt"
+fi
+
+echo
+
+# ---- 3. Configure git filters ----
 VAULT_SCRIPT="${SCRIPT_DIR}/vault.sh"
 
 git -C "$REPO_ROOT" config filter.git-vault.clean  "$VAULT_SCRIPT encrypt"
@@ -65,12 +77,12 @@ if ! git -C "$REPO_ROOT" config --local --get-all include.path 2>/dev/null | gre
 fi
 echo
 
-# ---- 3. Ensure .git-vault/vault.sh is executable ----
+# ---- 4. Ensure .git-vault/vault.sh is executable ----
 chmod +x "$VAULT_SCRIPT"
 echo "✓ ${VAULT_SCRIPT} marked as executable"
 echo
 
-# ---- 4. Remind about .gitattributes ----
+# ---- 5. Remind about .gitattributes ----
 GITATTR="${REPO_ROOT}/.gitattributes"
 if [[ ! -f "$GITATTR" ]] || ! grep -q "git-vault" "$GITATTR" 2>/dev/null; then
   echo "⚠ Don't forget to mark files in .gitattributes. Example:"
@@ -81,7 +93,7 @@ if [[ ! -f "$GITATTR" ]] || ! grep -q "git-vault" "$GITATTR" 2>/dev/null; then
   echo
 fi
 
-# ---- 5. Re-checkout encrypted files so smudge filter decrypts them ----
+# ---- 6. Re-checkout encrypted files so smudge filter decrypts them ----
 echo "Refreshing working tree to apply decryption..."
 # Remove vault-tracked files and re-checkout (forces smudge filter to run)
 cd "$REPO_ROOT" || { echo "✗ Cannot cd to repo root: $REPO_ROOT" >&2; exit 1; }
@@ -95,10 +107,10 @@ if ! git checkout -- . 2>/dev/null; then
   echo "  Run 'git checkout -- .' manually if needed." >&2
 fi
 
-# ---- 6. Renormalize index so git doesn't see decrypted files as "dirty" ----
+# ---- 7. Renormalize index so git doesn't see decrypted files as "dirty" ----
 git add --renormalize . 2>/dev/null || true
 
-# ---- 7. Self-test: verify encrypt/decrypt round-trip ----
+# ---- 8. Self-test: verify encrypt/decrypt round-trip ----
 echo "Running self-test..."
 _test_str="git-vault-self-test-$$"
 _test_out="$(printf '%s' "$_test_str" | "$VAULT_SCRIPT" encrypt | "$VAULT_SCRIPT" decrypt 2>/dev/null)"

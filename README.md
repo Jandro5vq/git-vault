@@ -17,13 +17,15 @@ The key never enters the repository. It lives in `.git/vault-key` (never committ
 Each encrypted file is a 4-line text file, binary-safe via base64:
 
 ```
-GITVAULT:2
-<iv_hex>            # 32 hex chars — deterministic, derived from content hash
-<hmac_hex>          # 64 hex chars — HMAC-SHA256 over ciphertext
+GITVAULT:2.1
+<iv_hex>            # 32 hex chars — random (openssl rand)
+<hmac_hex>          # 64 hex chars — HMAC-SHA256 over ciphertext (encrypt-then-MAC)
 <base64_ciphertext> # AES-256-CBC output
 ```
 
-The deterministic IV means re-encrypting an unchanged file produces the same ciphertext, so git does not mark the file dirty.
+Key derivation: PBKDF2-SHA256 at 600,000 iterations with a per-repo salt stored in `.git-vault/vault-salt`. The double-encrypt guard (`GITVAULT:` header check) prevents re-encrypting already-encrypted content, so git does not see dirty files on re-add.
+
+Legacy `GITVAULT:2` files (SHA-256 derivation, deterministic IV) continue to decrypt correctly. Run `vault.sh upgrade` to migrate them.
 
 ## Requirements
 
@@ -163,11 +165,12 @@ export GIT_VAULT_KEY_NEW="new-key-at-least-20-chars"
 - Access revocation without key rotation (one shared key = team access)
 
 **Cryptographic design:**
-- Key derivation: SHA-256 with domain separation (fast; PBKDF2/Argon2 planned for v3)
+- Key derivation: PBKDF2-SHA256, 600,000 iterations, per-repo salt (GITVAULT:2.1)
 - Cipher: AES-256-CBC
 - Authentication: HMAC-SHA256 (encrypt-then-MAC pattern)
-- AES key and HMAC key are derived separately from the shared key
-- Temp directory is created with mode 700 to prevent other users from reading plaintext on shared systems
+- AES key and HMAC key are derived separately from the PBKDF2 master key
+- Random IV per encryption — eliminates deterministic IV correlation
+- Temp directory mode 700; `shred` wipes plaintext before `rm`
 
 See [SECURITY.md](SECURITY.md) for the full cryptographic analysis and threat model.
 
@@ -175,7 +178,7 @@ See [SECURITY.md](SECURITY.md) for the full cryptographic analysis and threat mo
 
 - **Shared key model** — no per-user encryption. Losing the key means losing access to all historical secrets.
 - **Minimum key length** — keys shorter than 20 characters are rejected at setup and rotation time.
-- **Weak key derivation** — SHA-256 is not brute-force resistant. Use a strong, random key (20+ characters).
+- **PBKDF2, not Argon2** — PBKDF2-SHA256 at 600k iterations resists GPU attacks reasonably well; Argon2id (planned for v3) is stronger against memory-hard attacks.
 - **One key per repository** — different directories cannot have different keys in v2.
 - **Requires OpenSSL** — not a pure Bash solution; `openssl enc` must be available.
 - **Historical commits** — rotation re-encrypts current HEAD only; history still decryptable with the old key.

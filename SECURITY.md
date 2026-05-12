@@ -29,73 +29,61 @@ git-vault is a pragmatic solution for small teams that need to encrypt secrets i
 
 ### Strengths
 
-**AES-256-CBC with SHA-256-derived key**
+**AES-256-CBC with PBKDF2-SHA256-derived key (GITVAULT:2.1)**
 Key length: 256 bits. AES-256 has no known practical attacks.
-The key is derived as `SHA-256("git-vault:v2:aes-key:" + passphrase)`, providing domain separation from the HMAC key.
+The master key is derived via PBKDF2-SHA256 at 600,000 iterations with a per-repo salt stored in `.git-vault/vault-salt`. AES and HMAC keys are then derived from the master key with domain-separated SHA-256: `SHA-256("git-vault:v2:aes-key:" + master_key)`.
 
 **Encrypt-then-MAC (HMAC-SHA256)**
 The correct pattern for CBC: the ciphertext is authenticated **before** decryption.
 Guards against padding oracle attacks and tampering detection.
-The HMAC key is derived independently: `SHA-256("git-vault:v2:hmac-key:" + passphrase)`.
+The HMAC key is derived independently: `SHA-256("git-vault:v2:hmac-key:" + master_key)`.
 
-**Deterministic IV derived from content**
-`IV = SHA-256("git-vault:v2:iv:" + passphrase + SHA-256(plaintext))[:16]`
-Required so that git does not mark unchanged files as modified.
-Known consequence: two files with the same content produce the same ciphertext (git-crypt has the same limitation). For secrets this is acceptable.
+**Random IV (GITVAULT:2.1)**
+`IV = openssl rand -hex 16` — 128 bits of CSPRNG output per encryption.
+Eliminates the deterministic IV correlation attack present in GITVAULT:2. Re-encrypting the same file produces different ciphertext each time (except when the double-encrypt guard fires, which returns the existing ciphertext unchanged).
 
 **Binary-safe**
 stdin is written to a temp file before processing; never passed through bash variables (which truncate null bytes). Round-trip verified with all values 0x00–0xFF.
 
 **Domain separation in key derivation**
-Each purpose has its own prefix: `aes-key:`, `hmac-key:`, `iv:`.
+Each purpose has its own prefix: `aes-key:`, `hmac-key:`.
 Prevents reuse of cryptographic material across different uses.
 
 **Hardened temp directory**
 The temp directory is created with mode 700 immediately after `mktemp -d`, preventing other users from reading plaintext on shared systems.
 
+**Secure temp file deletion**
+Plaintext temp files are wiped with `shred -uzn 1` (if available) before `rm -rf`, overwriting disk sectors to reduce forensic recoverability.
+
 ### Known weaknesses and mitigations
-
-**Key derivation without a cost-factor KDF**
-
-```
-Current:  AES_KEY = SHA-256("git-vault:v2:aes-key:" + passphrase)
-Better:   AES_KEY = PBKDF2(passphrase, salt, iterations=600000, SHA-256)
-          or Argon2id(passphrase, salt, m=64MB, t=3, p=4)
-```
-
-SHA-256 is very fast: an attacker can test ~1 billion passphrases/second on modern hardware. PBKDF2 with 600,000 iterations reduces this to ~10,000/second.
-
-**Practical impact:** Only relevant if the attacker obtains the ciphertext AND the passphrase is weak (dictionary word, short). With a passphrase of 20+ random characters, SHA-256 is sufficient. Minimum key length of 20 characters is enforced at setup and rotation time.
-
-**Implementable mitigation with openssl:**
-```bash
-# In setup.sh, generate a random salt in .git/vault-salt (never committed)
-openssl rand -hex 32 > .git/vault-salt
-# In vault.sh, derive with PBKDF2:
-AES_KEY=$(openssl kdf -keylen 32 -kdfopt digest:SHA2-256 \
-  -kdfopt pass:"$passphrase" -kdfopt salt:"$(cat .git/vault-salt)" \
-  -kdfopt iter:600000 PBKDF2 2>/dev/null | xxd -p -c 64)
-```
-Note: the salt would need to be synchronized across team machines, adding operational complexity. Planned for v3.
 
 **AES-CBC instead of AES-GCM**
 
 `openssl enc` does not support AEAD (GCM). CBC with external HMAC (Encrypt-then-MAC) is security-equivalent, but is more code and more error surface.
 With HMAC-SHA256 correctly implemented, the difference is academic.
 
-**The IV is not secret**
+**The IV is stored in plaintext**
 
-The IV is stored in plaintext in the encrypted file (required for decryption without knowing the plaintext). An attacker who sees two commits can tell whether a file's content changed by comparing IVs.
+The IV is stored in the encrypted file header (required for decryption). In GITVAULT:2, the IV was deterministic, so an attacker could detect whether two commits encrypted the same content. In GITVAULT:2.1, the IV is random — this leaks only that a file was *re-encrypted* (not whether the content changed), which is acceptable.
+
+**Shared salt for PBKDF2**
+
+The salt in `.git-vault/vault-salt` is per-repo (committed) but shared across all team members. This is correct — it prevents rainbow tables while allowing the team to derive the same master key from the same passphrase. It does not provide per-user isolation; that requires GPG (out of scope for this tool).
 
 **Plaintext in temporary files**
 
-Plaintext is written to `$TMPDIR` (via `mktemp`). If the disk is not encrypted (FileVault/LUKS), residual plaintext could persist in disk sectors after the temp file is deleted.
+Plaintext is written to `$TMPDIR` (via `mktemp`). If the disk is not encrypted (FileVault/LUKS), residual plaintext may persist in freed disk sectors.
 
-Current mitigations in place:
-- Temp directory created with mode 700 (prevents access by other users on the same machine)
+Current mitigations:
+- Temp directory created with mode 700 (prevents access by other users)
+- `shred -uzn 1` overwrites temp files before removal when `shred` is available
 - Trap on `EXIT INT TERM` ensures cleanup runs on Ctrl-C and kill signals
 
-Remaining gap: `rm` does not securely wipe data; disk sectors may still hold plaintext. Mitigation: use `shred` or mount `$TMPDIR` on a `tmpfs`. Planned for v2.1.
+Remaining gap: on systems without `shred` (macOS, BSD), only `rm` runs. Mount `$TMPDIR` on a `tmpfs` (RAM-backed) for complete mitigation.
+
+**Legacy GITVAULT:2 format**
+
+Old GITVAULT:2 files use SHA-256 key derivation (no iterations) and a deterministic IV. Run `vault.sh upgrade` to migrate all tracked files to GITVAULT:2.1. After the upgrade commit, old v2 decryption still works for reading history.
 
 ---
 
@@ -149,7 +137,7 @@ git push --force-with-lease origin master
 | Cryptographic security | Equivalent | Slightly better (CTR is cleaner) |
 | Integrity | HMAC-SHA256 ✓ | HMAC-SHA1 (old) / SHA256 (new) |
 | Binary files | ✓ | ✓ |
-| KDF | SHA-256 (weak for short passphrases) | No explicit KDF |
+| KDF | PBKDF2-SHA256, 600k iter (v2.1) / SHA-256 (v2 legacy) | No explicit KDF |
 | Key rotation | ✓ (rotate.sh, with verification and backup) | Manual |
 | Format versioning | ✓ (GITVAULT:2) | Yes |
 | GPG (multi-user) | ✗ | ✓ |
@@ -159,19 +147,23 @@ git push --force-with-lease origin master
 
 ## Roadmap
 
-### v2.1 — Short term (no format changes)
+### GITVAULT:2.1 — Implemented
 - [x] Automatic integrity self-test in `setup.sh`
 - [x] Key length enforcement (minimum 20 characters)
 - [x] Hardened temp directory (mode 700)
 - [x] Signal handling for temp cleanup (EXIT INT TERM)
 - [x] Key backup before rotation + pre/post verification
-- [ ] `shred` or `tmpfs` for temporary files
-- [ ] Multi-key support in `.gitattributes` (different keys per directory)
+- [x] `shred` before `rm` for temp file wiping
+- [x] PBKDF2-SHA256 key derivation (600k iterations, shared repo salt)
+- [x] Random IV — eliminates deterministic IV correlation
+- [x] Hard-fail on unknown versions / decryption errors (no plaintext fallback)
+- [x] `vault.sh upgrade` subcommand for in-place v2 → v2.1 migration
 
-### v3 — Medium term (new format `GITVAULT:3`)
-- [ ] PBKDF2/Argon2id for key derivation (salt in `.git/vault-salt`)
-- [ ] Per-file salt to eliminate IV correlation
-- [ ] Automatic v2 → v3 migration on first `git add`
+### GITVAULT:3 — Medium term
+- [ ] Argon2id for key derivation (stronger than PBKDF2 against GPU attacks)
+- [ ] Per-file salt to eliminate any residual IV correlation
+- [ ] Multi-key support in `.gitattributes` (different keys per directory)
+- [ ] Automatic v2.1 → v3 migration on first `git add`
 
 ### Out of scope (would require external dependencies)
 - Per-user GPG encryption (like git-crypt): requires `gpg`
