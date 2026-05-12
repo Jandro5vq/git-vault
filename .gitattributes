@@ -1,0 +1,15 @@
+# Line endings
+* text=auto
+*.sh text eol=lf
+
+# git-vault: files matching these patterns are encrypted in the repo
+# filter=git-vault: encrypt on 'git add' (clean filter), decrypt on checkout (smudge filter)
+# diff=git-vault: show plaintext in 'git diff' and 'git show'
+secrets/*     filter=git-vault diff=git-vault
+secrets/**    filter=git-vault diff=git-vault
+*.secret      filter=git-vault diff=git-vault
+.env          filter=git-vault diff=git-vault
+
+# IMPORTANT: never encrypt these
+.gitattributes  !filter !diff
+.git-vault/**   !filter !diff
