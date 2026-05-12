@@ -35,27 +35,50 @@ No other dependencies.
 
 ## Setup
 
-**One-time, per developer. Run from inside your git repository:**
+### Lead developer (first time, per repo)
+
+Run this once inside your repository to install git-vault and configure everything:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jandro5vq/git-vault/master/install.sh | bash
 ```
 
-This downloads the scripts into `.git-vault/`, configures git filters, and walks you through key setup interactively. Requires `bash`, `openssl`, and `curl` (or `wget`).
+This downloads the scripts into `.git-vault/`, configures git filters, walks you through key setup, and runs a self-test. Commit the result so teammates get the scripts automatically:
+
+```bash
+git add .git-vault/ .gitattributes
+git commit -m "chore: add git-vault encryption"
+git push
+```
 
 <details>
 <summary>Manual install (no curl)</summary>
 
 ```bash
 mkdir -p .git-vault
-cp vault.sh setup.sh rotate.sh .git-vault/
+cp vault.sh setup.sh rotate.sh join.sh .git-vault/
+cp .git-vault/gitconfig .git-vault/gitconfig
 chmod +x .git-vault/*.sh
 .git-vault/setup.sh
 ```
 
 </details>
 
-Setup stores the key in `.git/vault-key` (mode 600), configures the git filters in `.git/config`, decrypts any already-encrypted files on disk, and runs a self-test to confirm the encrypt/decrypt round-trip works before finishing.
+### Teammates (after cloning or pulling)
+
+Scripts and filter definitions are already in the repo. Teammates only need to provide the shared key:
+
+```bash
+.git-vault/join.sh
+```
+
+That's it. `join.sh` wires the filters into their local `.git/config` and decrypts all vault-tracked files on disk. The key is the only thing that needs to be shared out-of-band (never commit it).
+
+For CI/CD or non-interactive environments:
+
+```bash
+GIT_VAULT_KEY='the-shared-key' .git-vault/join.sh
+```
 
 **Mark which files to encrypt in `.gitattributes`:**
 
@@ -161,9 +184,11 @@ See [SECURITY.md](SECURITY.md) for the full cryptographic analysis and threat mo
 
 | File | Purpose |
 |------|---------|
-| `install.sh` | One-liner installer: downloads scripts and runs setup |
+| `install.sh` | One-liner installer for the lead developer: downloads scripts and runs setup |
+| `join.sh` | Teammate onboarding: wires filters and saves key — the only step after cloning |
 | `vault.sh` | Core encrypt/decrypt engine; implements git filters |
-| `setup.sh` | First-time setup: key storage, git filter configuration, and self-test |
+| `setup.sh` | Lead developer setup: key storage, filter configuration, and self-test |
 | `rotate.sh` | Key rotation: verifies, backs up, re-encrypts, and commits with confirmation |
+| `.git-vault/gitconfig` | Committed filter definitions — included by teammates' local `.git/config` |
 | `.gitattributes` | Patterns that determine which files are encrypted |
 | `SECURITY.md` | Detailed cryptographic analysis |

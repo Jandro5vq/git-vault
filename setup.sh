@@ -57,6 +57,12 @@ echo "✓ Git filters configured:"
 echo "    filter.git-vault.clean  = $VAULT_SCRIPT encrypt"
 echo "    filter.git-vault.smudge = $VAULT_SCRIPT decrypt"
 echo "    diff.git-vault.textconv = $VAULT_SCRIPT diff"
+
+# Also wire the committed gitconfig so teammates using join.sh get the same result
+GITCONFIG_REL="../.git-vault/gitconfig"
+if ! git -C "$REPO_ROOT" config --local --get-all include.path 2>/dev/null | grep -qF "$GITCONFIG_REL"; then
+  git -C "$REPO_ROOT" config --local --add include.path "$GITCONFIG_REL"
+fi
 echo
 
 # ---- 3. Ensure .git-vault/vault.sh is executable ----

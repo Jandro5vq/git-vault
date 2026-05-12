@@ -1,0 +1,8 @@
+# git-vault filter definitions — included by .git/config via join.sh
+# This file is committed so filter config travels with the repo.
+[filter "git-vault"]
+	clean  = .git-vault/vault.sh encrypt
+	smudge = .git-vault/vault.sh decrypt
+	required = true
+[diff "git-vault"]
+	textconv = .git-vault/vault.sh diff

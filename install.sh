@@ -46,11 +46,14 @@ _fetch() {
   fi
 }
 
-for script in vault.sh setup.sh rotate.sh; do
+for script in vault.sh setup.sh rotate.sh join.sh; do
   _fetch "$BASE_URL/$script" ".git-vault/$script"
   chmod +x ".git-vault/$script"
   echo "  ✓ .git-vault/$script"
 done
+
+_fetch "$BASE_URL/.git-vault/gitconfig" ".git-vault/gitconfig"
+echo "  ✓ .git-vault/gitconfig"
 
 # ── add .gitattributes exclusion if not already present ──────────────────────
 
