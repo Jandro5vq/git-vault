@@ -3,11 +3,11 @@
 # Adds transparent secret encryption to any git repository.
 #
 # Usage — run from inside the target git repo:
-#   curl -fsSL https://raw.githubusercontent.com/Jandro5vq/git-vault/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Jandro5vq/git-vault/master/install.sh | bash
 
 set -euo pipefail
 
-BASE_URL="https://raw.githubusercontent.com/Jandro5vq/git-vault/main"
+BASE_URL="https://raw.githubusercontent.com/Jandro5vq/git-vault/master"
 
 # ── pre-flight checks ────────────────────────────────────────────────────────
 
