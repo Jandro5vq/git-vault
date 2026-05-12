@@ -35,17 +35,25 @@ No other dependencies.
 
 ## Setup
 
-**One-time, per developer:**
+**One-time, per developer. Run from inside your git repository:**
 
 ```bash
-# 1. Copy scripts into your repository
-mkdir -p .git-vault
-cp setup.sh vault.sh rotate.sh .git-vault/
-chmod +x .git-vault/*.sh
+curl -fsSL https://raw.githubusercontent.com/Jandro5vq/git-vault/master/install.sh | bash
+```
 
-# 2. Run setup — prompts for the shared key (minimum 20 characters)
+This downloads the scripts into `.git-vault/`, configures git filters, and walks you through key setup interactively. Requires `bash`, `openssl`, and `curl` (or `wget`).
+
+<details>
+<summary>Manual install (no curl)</summary>
+
+```bash
+mkdir -p .git-vault
+cp vault.sh setup.sh rotate.sh .git-vault/
+chmod +x .git-vault/*.sh
 .git-vault/setup.sh
 ```
+
+</details>
 
 Setup stores the key in `.git/vault-key` (mode 600), configures the git filters in `.git/config`, decrypts any already-encrypted files on disk, and runs a self-test to confirm the encrypt/decrypt round-trip works before finishing.
 
@@ -153,6 +161,7 @@ See [SECURITY.md](SECURITY.md) for the full cryptographic analysis and threat mo
 
 | File | Purpose |
 |------|---------|
+| `install.sh` | One-liner installer: downloads scripts and runs setup |
 | `vault.sh` | Core encrypt/decrypt engine; implements git filters |
 | `setup.sh` | First-time setup: key storage, git filter configuration, and self-test |
 | `rotate.sh` | Key rotation: verifies, backs up, re-encrypts, and commits with confirmation |
